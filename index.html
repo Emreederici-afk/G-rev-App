@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Görev Takip + Otomatik Fail + Grafik</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    body { margin: 0; background:#0b1220; color:#e8eefc; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 18px; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    .grid { display:grid; grid-template-columns: 380px 1fr; gap: 14px; }
+    .card { background:#111a2e; border:1px solid #223055; border-radius: 12px; padding: 14px; }
+    label { display:block; font-size: 12px; opacity:.9; margin: 10px 0 6px; }
+    input, select, button {
+      width:100%; padding: 10px 10px; border-radius: 10px;
+      border:1px solid #2b3b66; background:#0d1528; color:#e8eefc;
+      outline:none;
+    }
+    button { cursor:pointer; border:1px solid #3a55a6; background:#142449; font-weight:600; }
+    button:hover { filter: brightness(1.08); }
+    .row { display:flex; gap:10px; }
+    .row > * { flex:1; }
+    .muted { opacity:.75; font-size: 12px; line-height: 1.4; }
+    .tasks { display:flex; flex-direction:column; gap:10px; margin-top: 10px; }
+    .task {
+      display:flex; align-items:flex-start; gap:10px;
+      padding: 10px; border-radius: 10px; border:1px solid #24345f; background:#0d1528;
+    }
+    .task input[type="checkbox"] { width:18px; height:18px; margin-top:2px; }
+    .task .meta { flex:1; }
+    .task .title { font-weight:700; }
+    .pill {
+      display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
+      border:1px solid #2b3b66; margin-top:6px; opacity:.95;
+    }
+    .ok { border-color:#2f8f68; }
+    .fail { border-color:#b54a4a; }
+    .pend { border-color:#c08b2e; }
+    .topbar { display:flex; gap:10px; align-items:center; }
+    .topbar h2 { margin:0; font-size: 14px; }
+    .danger { border:1px solid #b54a4a; background:#2a0f14; }
+    .smallbtn { width:auto; padding: 10px 12px; }
+    canvas { background:#0d1528; border:1px solid #24345f; border-radius: 12px; padding:10px; }
+    .charts { display:grid; grid-template-columns: 1fr; gap: 14px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <h1>Görev Takip (Daily/Weekly/Monthly) • Otomatik Fail • Bar + Line Grafik</h1>
+      <button class="smallbtn danger" id="resetBtn" title="Tüm veriyi siler">Sıfırla</button>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2 style="margin:0 0 10px;font-size:14px;">Yeni Görev</h2>
+
+        <label>Görev adı</label>
+        <input id="title" placeholder="Örn: 30 dk yürüyüş" />
+
+        <div class="row">
+          <div>
+            <label>Tür</label>
+            <select id="type">
+              <option value="once">Tek sefer (belirli tarih)</option>
+              <option value="daily">Günlük</option>
+              <option value="weekly">Haftalık</option>
+              <option value="monthly">Aylık</option>
+            </select>
+          </div>
+          <div>
+            <label>Başlangıç</label>
+            <input id="startDate" type="date" />
+          </div>
+        </div>
+
+        <div id="onceBox">
+          <label>Yapılacak gün (Due Date)</label>
+          <input id="dueDate" type="date" />
+        </div>
+
+        <div id="weeklyBox" style="display:none;">
+          <label>Haftanın günü</label>
+          <select id="weekday">
+            <option value="1">Pazartesi</option>
+            <option value="2">Salı</option>
+            <option value="3">Çarşamba</option>
+            <option value="4">Perşembe</option>
+            <option value="5">Cuma</option>
+            <option value="6">Cumartesi</option>
+            <option value="0">Pazar</option>
+          </select>
+        </div>
+
+        <div id="monthlyBox" style="display:none;">
+          <label>Ayın günü (1–28 önerilir)</label>
+          <input id="monthDay" type="number" min="1" max="28" value="1" />
+        </div>
+
+        <label>Takip penceresi (grafikler için)</label>
+        <select id="windowDays">
+          <option value="14">Son 14 gün</option>
+          <option value="30" selected>Son 30 gün</option>
+          <option value="60">Son 60 gün</option>
+          <option value="90">Son 90 gün</option>
+        </select>
+
+        <button id="addBtn" style="margin-top:12px;">Görevi Ekle</button>
+        <p class="muted">
+          Mantık: Her görev “o gün” için bir kayıt (occurrence) üretir. Gün bittiği halde yapılmadıysa otomatik <b>FAILED</b> olur.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="row" style="align-items:flex-end;">
+          <div style="flex:1.5">
+            <h2 style="margin:0 0 8px;font-size:14px;">Bugünün Görevleri</h2>
+            <div class="muted" id="todayInfo"></div>
+          </div>
+          <div>
+            <label>Tarih seç</label>
+            <input id="viewDate" type="date" />
+          </div>
+        </div>
+
+        <div class="tasks" id="taskList"></div>
+
+        <div class="charts" style="margin-top:14px;">
+          <div>
+            <h2 style="margin:0 0 8px;font-size:14px;">Bar Grafik: Günlük Done/Failed/Pending</h2>
+            <canvas id="barChart" height="160"></canvas>
+          </div>
+          <div>
+            <h2 style="margin:0 0 8px;font-size:14px;">Line Grafik: Done vs Failed Trend</h2>
+            <canvas id="lineChart" height="160"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script>
+    // ----------------------------
+    // Data Model
+    // ----------------------------
+    // templates: görev tanımı (once/daily/weekly/monthly)
+    // occurrences: her gün için gerçek takip kaydı: { id, templateId, date(YYYY-MM-DD), status: 'PENDING'|'DONE'|'FAILED', completedAt }
+    const STORAGE_KEY = "task_tracker_v1";
+
+    const state = loadState();
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { templates: [], occurrences: [], settings: { windowDays: 30 } };
+        const parsed = JSON.parse(raw);
+        return {
+          templates: Array.isArray(parsed.templates) ? parsed.templates : [],
+          occurrences: Array.isArray(parsed.occurrences) ? parsed.occurrences : [],
+          settings: parsed.settings || { windowDays: 30 }
+        };
+      } catch {
+        return { templates: [], occurrences: [], settings: { windowDays: 30 } };
+      }
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    const $ = (id) => document.getElementById(id);
+
+    // ----------------------------
+    // Date Helpers (local)
+    // ----------------------------
+    function pad(n){ return String(n).padStart(2,"0"); }
+    function toYMD(d){
+      const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+    }
+    function parseYMD(ymd){
+      const [y,m,d] = ymd.split("-").map(Number);
+      return new Date(y, m-1, d);
+    }
+    function addDays(ymd, days){
+      const dt = parseYMD(ymd);
+      dt.setDate(dt.getDate() + days);
+      return toYMD(dt);
+    }
+    function isBefore(aYMD, bYMD){ // a < b
+      return parseYMD(aYMD).getTime() < parseYMD(bYMD).getTime();
+    }
+    function todayYMD(){ return toYMD(new Date()); }
+
+    // ----------------------------
+    // Occurrence generation rules
+    // ----------------------------
+    function shouldOccur(template, ymd){
+      // ymd is the day we are generating occurrences for
+      const start = template.startDate;
+      if (isBefore(ymd, start)) return false;
+
+      if (template.type === "once") {
+        return ymd === template.dueDate;
+      }
+      if (template.type === "daily") {
+        return true;
+      }
+      if (template.type === "weekly") {
+        const dt = parseYMD(ymd);
+        return dt.getDay() === Number(template.weekday);
+      }
+      if (template.type === "monthly") {
+        const dt = parseYMD(ymd);
+        return dt.getDate() === Number(template.monthDay);
+      }
+      return false;
+    }
+
+    function getOccurrence(templateId, ymd){
+      return state.occurrences.find(o => o.templateId === templateId && o.date === ymd);
+    }
+
+    function ensureOccurrencesForRange(fromYMD, toYMD){
+      // inclusive from -> inclusive to
+      let cur = fromYMD;
+      while (true) {
+        for (const t of state.templates) {
+          if (shouldOccur(t, cur)) {
+            if (!getOccurrence(t.id, cur)) {
+              state.occurrences.push({
+                id: crypto.randomUUID(),
+                templateId: t.id,
+                date: cur,
+                status: "PENDING",
+                completedAt: null
+              });
+            }
+          }
+        }
+        if (cur === toYMD) break;
+        cur = addDays(cur, 1);
+      }
+      saveState();
+    }
+
+    function autoFailPastDays(){
+      // "O gün geçerse ve hala yapılmamışsa FAILED"
+      const today = todayYMD();
+      for (const o of state.occurrences) {
+        if (o.status === "PENDING" && isBefore(o.date, today)) {
+          o.status = "FAILED";
+        }
+      }
+      saveState();
+    }
+
+    // ----------------------------
+    // UI + Charts
+    // ----------------------------
+    let barChart, lineChart;
+
+    function getTemplateById(id){ return state.templates.find(t => t.id === id); }
+
+    function renderTaskList(viewYMD){
+      const list = $("taskList");
+      list.innerHTML = "";
+
+      // ensure occurrences for view day (and chart window) exist
+      const win = Number($("windowDays").value);
+      state.settings.windowDays = win;
+      saveState();
+
+      const startRange = addDays(todayYMD(), -(win-1));
+      ensureOccurrencesForRange(startRange, todayYMD());
+      ensureOccurrencesForRange(viewYMD, viewYMD);
+      autoFailPastDays();
+
+      const occ = state.occurrences
+        .filter(o => o.date === viewYMD)
+        .map(o => ({...o, template: getTemplateById(o.templateId)}))
+        .filter(x => x.template); // template deleted safety
+
+      if (occ.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "muted";
+        empty.textContent = "Bu tarihte görev yok.";
+        list.appendChild(empty);
+        return;
+      }
+
+      for (const item of occ) {
+        const el = document.createElement("div");
+        el.className = "task";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = item.status === "DONE";
+        cb.disabled = item.status === "FAILED";
+        cb.addEventListener("change", () => {
+          const real = state.occurrences.find(o => o.id === item.id);
+          if (!real) return;
+          if (cb.checked) {
+            real.status = "DONE";
+            real.completedAt = new Date().toISOString();
+          } else {
+            // geri alma: sadece bugünün veya geleceğin görevinde mantıklı.
+            // geçmiş gün zaten auto-fail'e gideceği için kullanıcıyı koruyoruz.
+            if (isBefore(real.date, todayYMD())) return;
+            real.status = "PENDING";
+            real.completedAt = null;
+          }
+          saveState();
+          autoFailPastDays();
+          renderAll();
+        });
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+
+        const title = document.createElement("div");
+        title.className = "title";
+        title.textContent = item.template.title;
+
+        const subtitle = document.createElement("div");
+        subtitle.className = "muted";
+        subtitle.textContent = `Tür: ${humanType(item.template)} • Tarih: ${item.date}`;
+
+        const pill = document.createElement("span");
+        pill.className = "pill " + (item.status === "DONE" ? "ok" : item.status === "FAILED" ? "fail" : "pend");
+        pill.textContent = item.status;
+
+        meta.appendChild(title);
+        meta.appendChild(subtitle);
+        meta.appendChild(pill);
+
+        el.appendChild(cb);
+        el.appendChild(meta);
+        list.appendChild(el);
+      }
+    }
+
+    function humanType(t){
+      if (t.type === "once") return "Tek sefer";
+      if (t.type === "daily") return "Günlük";
+      if (t.type === "weekly") return "Haftalık";
+      if (t.type === "monthly") return "Aylık";
+      return t.type;
+    }
+
+    function buildSeries(windowDays){
+      const end = todayYMD();
+      const start = addDays(end, -(windowDays-1));
+
+      // ensure occurrences in range
+      ensureOccurrencesForRange(start, end);
+      autoFailPastDays();
+
+      const labels = [];
+      const done = [];
+      const failed = [];
+      const pending = [];
+
+      let cur = start;
+      while (true) {
+        labels.push(cur);
+        const daily = state.occurrences.filter(o => o.date === cur);
+        done.push(daily.filter(x => x.status === "DONE").length);
+        failed.push(daily.filter(x => x.status === "FAILED").length);
+        pending.push(daily.filter(x => x.status === "PENDING").length);
+
+        if (cur === end) break;
+        cur = addDays(cur, 1);
+      }
+
+      return { labels, done, failed, pending };
+    }
+
+    function renderCharts(){
+      const win = Number($("windowDays").value);
+      const s = buildSeries(win);
+
+      const barCtx = $("barChart").getContext("2d");
+      const lineCtx = $("lineChart").getContext("2d");
+
+      if (barChart) barChart.destroy();
+      if (lineChart) lineChart.destroy();
+
+      barChart = new Chart(barCtx, {
+        type: "bar",
+        data: {
+          labels: s.labels,
+          datasets: [
+            { label: "DONE", data: s.done },
+            { label: "FAILED", data: s.failed },
+            { label: "PENDING", data: s.pending },
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: "#e8eefc" } } },
+          scales: {
+            x: { ticks: { color: "#e8eefc", maxRotation: 0, autoSkip: true } },
+            y: { ticks: { color: "#e8eefc", precision: 0 }, beginAtZero: true }
+          }
+        }
+      });
+
+      lineChart = new Chart(lineCtx, {
+        type: "line",
+        data: {
+          labels: s.labels,
+          datasets: [
+            { label: "DONE", data: s.done, tension: 0.25 },
+            { label: "FAILED", data: s.failed, tension: 0.25 },
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: "#e8eefc" } } },
+          scales: {
+            x: { ticks: { color: "#e8eefc", maxRotation: 0, autoSkip: true } },
+            y: { ticks: { color: "#e8eefc", precision: 0 }, beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    function renderAll(){
+      const viewYMD = $("viewDate").value || todayYMD();
+      $("todayInfo").textContent = `Bugün: ${todayYMD()} • Görüntülenen tarih: ${viewYMD}`;
+      renderTaskList(viewYMD);
+      renderCharts();
+    }
+
+    // ----------------------------
+    // Add Task
+    // ----------------------------
+    function setTypeUI(){
+      const type = $("type").value;
+      $("onceBox").style.display = (type === "once") ? "block" : "none";
+      $("weeklyBox").style.display = (type === "weekly") ? "block" : "none";
+      $("monthlyBox").style.display = (type === "monthly") ? "block" : "none";
+    }
+
+    function addTask(){
+      const title = $("title").value.trim();
+      const type = $("type").value;
+      const startDate = $("startDate").value || todayYMD();
+
+      if (!title) { alert("Görev adı boş olamaz."); return; }
+
+      const t = { id: crypto.randomUUID(), title, type, startDate };
+
+      if (type === "once") {
+        const dueDate = $("dueDate").value;
+        if (!dueDate) { alert("Tek sefer görev için due date seç."); return; }
+        t.dueDate = dueDate;
+      }
+      if (type === "weekly") {
+        t.weekday = $("weekday").value;
+      }
+      if (type === "monthly") {
+        const md = Number($("monthDay").value);
+        if (!(md >= 1 && md <= 28)) { alert("Ayın günü 1–28 arası olmalı (güvenli)."); return; }
+        t.monthDay = md;
+      }
+
+      state.templates.push(t);
+      saveState();
+
+      // create occurrences for chart window + today
+      const win = Number($("windowDays").value);
+      const end = todayYMD();
+      const start = addDays(end, -(win-1));
+      ensureOccurrencesForRange(start, end);
+      autoFailPastDays();
+
+      // reset inputs
+      $("title").value = "";
+      if (type === "once") $("dueDate").value = "";
+
+      renderAll();
+    }
+
+    // ----------------------------
+    // Init
+    // ----------------------------
+    function init(){
+      // defaults
+      $("startDate").value = todayYMD();
+      $("viewDate").value = todayYMD();
+      $("windowDays").value = String(state.settings.windowDays || 30);
+      $("type").addEventListener("change", setTypeUI);
+      $("addBtn").addEventListener("click", addTask);
+      $("viewDate").addEventListener("change", renderAll);
+      $("windowDays").addEventListener("change", renderAll);
+
+      $("resetBtn").addEventListener("click", () => {
+        if (!confirm("Tüm görevler ve geçmiş kayıtlar silinsin mi?")) return;
+        localStorage.removeItem(STORAGE_KEY);
+        location.reload();
+      });
+
+      setTypeUI();
+
+      // ensure occurrences for last window and today
+      const win = Number($("windowDays").value);
+      const end = todayYMD();
+      const start = addDays(end, -(win-1));
+      ensureOccurrencesForRange(start, end);
+      autoFailPastDays();
+
+      // (opsiyonel) sayfa açık kalırsa her 60 sn'de bir fail kontrolü
+      setInterval(() => {
+        autoFailPastDays();
+        renderCharts();
+      }, 60000);
+
+      renderAll();
+    }
+
+    init();
+  </script>
+</body>
+</html>
